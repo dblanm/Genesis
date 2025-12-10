@@ -1,9 +1,9 @@
-ARG CUDA_VERSION=12.1
+ARG CUDA_VERSION=12.6
 
 # ===============================================================
 # Stage 1: Build LuisaRender
 # ===============================================================
-FROM pytorch/pytorch:2.5.1-cuda${CUDA_VERSION}-cudnn9-devel AS builder
+FROM pytorch/pytorch:2.9.0-cuda${CUDA_VERSION}-cudnn9-devel AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 ARG PYTHON_VERSION=3.11
@@ -38,10 +38,10 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 RUN pip install "pybind11[global]"
 
 # Install CMake
-RUN wget https://github.com/Kitware/CMake/releases/download/v3.31.0-rc2/cmake-3.31.0-rc2-linux-x86_64.sh && \
-    chmod +x cmake-3.31.0-rc2-linux-x86_64.sh && \
-    ./cmake-3.31.0-rc2-linux-x86_64.sh --skip-license --prefix=/usr/local && \
-    rm cmake-3.31.0-rc2-linux-x86_64.sh
+RUN wget https://github.com/Kitware/CMake/releases/download/v3.28.3/cmake-3.28.3-linux-x86_64.sh && \
+    chmod +x cmake-3.28.3-linux-x86_64.sh && \
+    ./cmake-3.28.3-linux-x86_64.sh --skip-license --prefix=/usr/local && \
+    rm cmake-3.28.3-linux-x86_64.sh
 
 # Build LuisaRender
 WORKDIR /workspace
@@ -54,7 +54,7 @@ RUN chmod +x ./build_luisa.sh && ./build_luisa.sh ${PYTHON_VERSION}
 # ===============================================================
 # Stage 2: Runtime Environment
 # ===============================================================
-FROM pytorch/pytorch:2.5.1-cuda${CUDA_VERSION}-cudnn9-devel
+FROM pytorch/pytorch:2.9.0-cuda${CUDA_VERSION}-cudnn9-devel
 
 ARG PYTHON_VERSION=3.11
 ENV DEBIAN_FRONTEND=noninteractive
@@ -88,6 +88,34 @@ WORKDIR /workspace
 
 # ------------------------ No root user --------------------------
 RUN useradd --shell /bin/bash -u 1001 -c "" -m user
+
+# -------------------- libuipc installation -----------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    zip \
+    unzip \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY install_vcpkg.sh /workspace/install_vcpkg.sh
+RUN bash /workspace/install_vcpkg.sh
+# Set environment variable for CMake to find vcpkg
+ENV VCPKG_ROOT=/opt/vcpkg
+ENV CMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake
+WORKDIR /workspace
+ARG CMAKE_CUDA_ARCHITECTURES=89
+RUN git clone https://github.com/spiriMirror/libuipc.git && cd libuipc && \
+    # Disable MUDA's forced native arch
+    sed -i 's/set(CMAKE_CUDA_ARCHITECTURES "native")/# removed native override/g' src/backends/cuda/CMakeLists.txt && \
+    sed -i 's/set(CMAKE_CUDA_ARCHITECTURES 75)/# removed GA override/g' src/backends/cuda/CMakeLists.txt && \
+    # -------------------------------------------
+    mkdir build && cd build && \
+    cmake -S .. -DUIPC_BUILD_PYBIND=1 -DCMAKE_BUILD_TYPE=Release \
+     -DCMAKE_CUDA_ARCHITECTURES=${CMAKE_CUDA_ARCHITECTURES}&& \
+    cmake --build . -j$(nproc) && \
+    cd python && \
+    pip install .
+ENV LD_LIBRARY_PATH="/workspace/libuipc/build/Release/bin:${LD_LIBRARY_PATH}"
+
 
 # --------------------------- Genesis ----------------------------
 RUN pip install --no-cache-dir open3d
