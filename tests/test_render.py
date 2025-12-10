@@ -309,6 +309,9 @@ def test_render_api_advanced(tmp_path, n_envs, show_viewer, png_snapshot, render
         sim_options=gs.options.SimOptions(
             dt=0.04,
         ),
+        rigid_options=gs.options.RigidOptions(
+            enable_collision=False,
+        ),
         vis_options=gs.options.VisOptions(
             # Disable shadows systematically for Rasterizer because they are forcibly disabled on CPU backend anyway
             shadow=(renderer_type != RENDERER_TYPE.RASTERIZER),
@@ -637,8 +640,12 @@ def test_camera_follow_entity(n_envs, renderer, show_viewer):
             GUI=show_viewer,
         )
         cam.follow_entity(obj, smoothing=None)
+        cam.unfollow_entity()
 
     scene.build(n_envs=n_envs)
+
+    for cam, obj in zip(scene.visualizer.cameras, scene.entities):
+        cam.follow_entity(obj, smoothing=None)
 
     # First render
     seg_mask = None
